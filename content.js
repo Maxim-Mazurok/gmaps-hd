@@ -1,5 +1,5 @@
 // Matches Google image/video CDN domains
-const GOOGLE_IMG_RE = /(lh[3-6]\.(googleusercontent\.com|ggpht\.com)|geo[0-3]\.ggpht\.com|streetviewpixels-pa\.googleapis\.com)/;
+const GOOGLE_IMG_RE = { test: (url) => GMapsMedia.isMedia(url) };
 
 // =============================================================
 // Detect whether current Maps page is showing a video or image
@@ -7,12 +7,13 @@ const GOOGLE_IMG_RE = /(lh[3-6]\.(googleusercontent\.com|ggpht\.com)|geo[0-3]\.g
 // =============================================================
 
 function detectMediaType() {
-  const url = decodeURIComponent(window.location.href);
+  const url = GMapsMedia.decode(window.location.href);
   if (url.includes("!1e5")) return "video";
   if (url.includes("!1e2")) return "image";
   // Check for <video> element on page
   const video = document.querySelector("video");
-  if (video) return "video";
+  if (video && video.getBoundingClientRect().width > 30 &&
+      video.getBoundingClientRect().height > 30) return "video";
   return "image";
 }
 
@@ -21,10 +22,11 @@ function detectMediaType() {
 // =============================================================
 
 function extractMediaFromPageUrl() {
-  const url = decodeURIComponent(window.location.href);
+  const url = GMapsMedia.decode(window.location.href);
   const matches = url.match(/https?:\/\/lh[3-6]\.googleusercontent\.com\/[^\s!,;)]+/g);
   if (matches && matches.length > 0) {
-    return matches[0].replace(/%3D/g, "=");
+    const media = matches[0].replace(/%3D/gi, "=");
+    return GMapsMedia.isMedia(media) ? media : null;
   }
   return null;
 }
@@ -37,16 +39,18 @@ function findVideoSource() {
   // Check for <video> elements
   const videos = document.querySelectorAll("video");
   for (const video of videos) {
+    const rect = video.getBoundingClientRect();
+    if (rect.width <= 30 || rect.height <= 30 || rect.bottom <= 0 || rect.top >= innerHeight) continue;
     // Direct src
-    if (video.src && !video.src.startsWith("blob:")) return video.src;
+    if (GMapsMedia.isMedia(video.src)) return video.src;
 
     // <source> children
     for (const source of video.querySelectorAll("source")) {
-      if (source.src && !source.src.startsWith("blob:")) return source.src;
+      if (GMapsMedia.isMedia(source.src)) return source.src;
     }
 
     // currentSrc
-    if (video.currentSrc && !video.currentSrc.startsWith("blob:")) return video.currentSrc;
+    if (GMapsMedia.isMedia(video.currentSrc)) return video.currentSrc;
   }
   return null;
 }
@@ -70,7 +74,10 @@ function createDownloadBar() {
       <option value="m22">720p</option>
       <option value="m18">360p</option>
     </select>
-    <span id="gmaps-hd-bar-status"></span>
+    <button id="gmaps-hd-bulk-btn" type="button">Download all photos</button>
+    <label id="gmaps-hd-video-option"><input id="gmaps-hd-include-videos" type="checkbox"> Include videos</label>
+    <button id="gmaps-hd-stop-btn" type="button" hidden>Stop</button>
+    <span id="gmaps-hd-bar-status" role="status" aria-live="polite"></span>
   `;
   document.body.appendChild(bar);
 
@@ -78,52 +85,34 @@ function createDownloadBar() {
     handleDownload();
   });
 
+  bar.querySelector("#gmaps-hd-bulk-btn").addEventListener("click", handleBulkDownload);
+  bar.querySelector("#gmaps-hd-stop-btn").addEventListener("click", () => bulkJob?.controller.abort());
   return bar;
 }
 
-function handleDownload() {
-  const mediaType = detectMediaType();
-  const status = document.querySelector("#gmaps-hd-bar-status");
-  const qualitySelect = document.querySelector("#gmaps-hd-bar-quality");
+async function requestDownload(action, url, options = {}) {
+  const response = await chrome.runtime.sendMessage({ action, url, ...options });
+  if (!response?.success) throw new Error(response?.error || "Download could not start");
+  return response;
+}
 
-  if (mediaType === "video") {
-    // Try to get video from <video> element first
-    const videoSrc = findVideoSource();
-    if (videoSrc) {
-      chrome.runtime.sendMessage({ action: "download-video", url: videoSrc });
-      status.textContent = "Downloading video...";
-      setTimeout(() => { status.textContent = ""; }, 3000);
-      return;
-    }
-
-    // Fall back to constructing video URL from the thumbnail/media URL
-    const mediaUrl = extractMediaFromPageUrl() || findLargestGoogleMedia();
-    if (mediaUrl) {
-      const quality = qualitySelect.value;
-      const baseUrl = mediaUrl.replace(/=[wsh]\d+.*$/, "");
-      chrome.runtime.sendMessage({
-        action: "download-video",
-        url: baseUrl + "=" + quality,
-        filename: "gmaps-video-" + Date.now()
-      });
-      status.textContent = "Downloading video (" + qualitySelect.selectedOptions[0].text + ")...";
-      setTimeout(() => { status.textContent = ""; }, 3000);
-    } else {
-      status.textContent = "No video found";
-      setTimeout(() => { status.textContent = ""; }, 2000);
-    }
-  } else {
-    // Image download
-    const url = extractMediaFromPageUrl() || findLargestGoogleMedia();
-    console.log("[GMaps HD] Downloading image URL:", url);
-    if (url) {
-      chrome.runtime.sendMessage({ action: "download-hd", url });
-      status.textContent = "Downloading image...";
-      setTimeout(() => { status.textContent = ""; }, 2000);
-    } else {
-      status.textContent = "No image found";
-      setTimeout(() => { status.textContent = ""; }, 2000);
-    }
+async function handleDownload() {
+  const status = downloadBar.querySelector("#gmaps-hd-bar-status");
+  const button = downloadBar.querySelector("#gmaps-hd-bar-btn");
+  const quality = downloadBar.querySelector("#gmaps-hd-bar-quality").value;
+  button.disabled = true;
+  try {
+    const video = detectMediaType() === "video";
+    const source = video ? findVideoSource() : null;
+    let url = source || extractMediaFromPageUrl() || findLargestGoogleMedia();
+    if (!url) throw new Error(video ? "No supported video found" : "No image found");
+    if (video) url = GMapsMedia.withQuality(url, quality);
+    await requestDownload(video ? "download-video" : "download-hd", url);
+    status.textContent = "Download started — check browser Downloads";
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -161,7 +150,8 @@ function findLargestGoogleMedia() {
     if (!GOOGLE_IMG_RE.test(img.src || "")) continue;
     const rect = img.getBoundingClientRect();
     const area = rect.width * rect.height;
-    if (area > bestArea && rect.width > 30 && rect.height > 30) {
+    if (area > bestArea && rect.width > 30 && rect.height > 30 &&
+        rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth) {
       best = img.src;
       bestArea = area;
     }
@@ -174,7 +164,8 @@ function findLargestGoogleMedia() {
     if (!url) continue;
     const rect = el.getBoundingClientRect();
     const area = rect.width * rect.height;
-    if (area > bestArea && rect.width > 30 && rect.height > 30) {
+    if (area > bestArea && rect.width > 30 && rect.height > 30 &&
+        rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth) {
       best = url;
       bestArea = area;
     }
@@ -187,7 +178,8 @@ function findLargestGoogleMedia() {
       if (!a.href.includes("googleusercontent.com/") && !a.href.includes("ggpht.com/")) continue;
       const rect = a.getBoundingClientRect();
       const area = rect.width * rect.height;
-      if (area > bestArea && rect.width > 30 && rect.height > 30) {
+      if (area > bestArea && rect.width > 30 && rect.height > 30 &&
+        rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth) {
         best = a.href;
         bestArea = area;
       }
@@ -210,17 +202,17 @@ function extractGoogleUrl(el) {
 
   // background-image via style property
   const bgImg = el.style.backgroundImage;
-  if (bgImg && bgImg !== "none" && GOOGLE_IMG_RE.test(bgImg)) {
+  if (bgImg && bgImg !== "none") {
     const m = bgImg.match(/url\(["']?(https?:\/\/[^"')]+)["']?\)/);
-    if (m) return m[1];
+    if (m && GMapsMedia.isMedia(m[1])) return m[1];
   }
 
   // Computed background-image
   try {
     const computed = getComputedStyle(el).backgroundImage;
-    if (computed && computed !== "none" && GOOGLE_IMG_RE.test(computed)) {
+    if (computed && computed !== "none") {
       const m = computed.match(/url\(["']?(https?:\/\/[^"')]+)["']?\)/);
-      if (m) return m[1];
+      if (m && GMapsMedia.isMedia(m[1])) return m[1];
     }
   } catch (e) {}
 
@@ -240,21 +232,26 @@ function getOrCreateButton() {
     btn.id = "gmaps-hd-hover-btn";
     btn.textContent = "HD";
     btn.title = "Download full resolution";
-    btn.addEventListener("click", (e) => {
+    btn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
       const url = btn.dataset.url;
       const isVideo = btn.dataset.isVideo === "true";
       if (url) {
-        if (isVideo) {
-          const baseUrl = url.replace(/=[wsh]\d+.*$/, "");
-          chrome.runtime.sendMessage({ action: "download-video", url: baseUrl + "=m37" });
-        } else {
-          chrome.runtime.sendMessage({ action: "download-hd", url });
+        btn.disabled = true;
+        try {
+          const quality = downloadBar?.querySelector("#gmaps-hd-bar-quality").value || "dv";
+          await requestDownload(isVideo ? "download-video" : "download-hd",
+            isVideo ? GMapsMedia.withQuality(url, quality) : url);
+          btn.textContent = "Started";
+        } catch (error) {
+          btn.textContent = "Failed";
+          btn.title = error.message;
+          if (downloadBar) downloadBar.querySelector("#gmaps-hd-bar-status").textContent = error.message;
+        } finally {
+          btn.disabled = false;
         }
-        btn.textContent = "...";
-        setTimeout(() => { btn.textContent = "HD"; }, 1500);
       }
     }, true);
     btn.addEventListener("mouseleave", () => { hideHoverButton(); });
@@ -286,6 +283,7 @@ function hideHoverButton() {
 }
 
 document.addEventListener("mouseover", (e) => {
+  if (!GMapsMedia.isMaps(window.location.href)) return;
   const found = findGoogleImageNear(e.target);
   if (found) showHoverButton(found.el, found.url);
 }, { passive: true });
@@ -303,10 +301,10 @@ document.addEventListener("mouseout", (e) => {
 
 function findGoogleImageNear(startEl) {
   let el = startEl;
-  for (let up = 0; up < 15 && el; up++) {
+  for (let up = 0; up < 5 && el && el !== document.body && el !== document.documentElement; up++) {
     const url = extractGoogleUrl(el);
     if (url) return { el, url };
-    const childResult = searchChildren(el, 3);
+    const childResult = searchChildren(el, 2);
     if (childResult) return childResult;
     el = el.parentElement;
   }
@@ -334,19 +332,94 @@ window.addEventListener("scroll", () => {
   }
 }, { passive: true });
 
+let bulkJob = null;
+function bulkPlaceKey() { return window.location.pathname.split("/@")[0]; }
+async function handleBulkDownload() {
+  if (bulkJob) return;
+  const status = downloadBar.querySelector("#gmaps-hd-bar-status");
+  const controller = new AbortController();
+  const job = bulkJob = {controller, place: bulkPlaceKey()};
+  const signal = controller.signal;
+  const single = downloadBar.querySelector("#gmaps-hd-bar-btn");
+  const bulk = downloadBar.querySelector("#gmaps-hd-bulk-btn");
+  const option = downloadBar.querySelector("#gmaps-hd-include-videos");
+  const stop = downloadBar.querySelector("#gmaps-hd-stop-btn");
+  const includeVideos = option.checked;
+  let activeId = null, saved = 0, failed = 0, scanned = 0, skipped = 0;
+  let reason = "";
+  single.disabled = bulk.disabled = option.disabled = true;
+  stop.hidden = false;
+  const cancelActive = () => {
+    if (activeId !== null) chrome.runtime.sendMessage({action: "cancel-download", id: activeId}).catch(() => {});
+  };
+  signal.addEventListener("abort", cancelActive);
+  const failures = [];
+  try {
+    const result = await GMapsBulk.scan({signal, includeVideos,
+      onProgress(count, videos) {
+        scanned = count; skipped = videos;
+        status.textContent = `Loading gallery: ${count} unique media found · ${videos} videos skipped`;
+      }});
+    scanned = result.items.length; skipped = result.skipped; reason = result.reason;
+    if (!scanned) throw new Error("No supported photos found in this gallery.");
+    let name;
+    try { name = decodeURIComponent(job.place.split("/place/")[1] || "place").replace(/\+/g, " "); }
+    catch { name = "place"; }
+    const folder = `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    for (let index = 0; index < result.items.length; index++) {
+      if (signal.aborted) throw new DOMException("Stopped", "AbortError");
+      const item = result.items[index];
+      status.textContent = `${reason}. Saving ${index + 1}/${scanned} · ${saved} saved · ${failed} failed · ${skipped} videos skipped`;
+      try {
+        const response = await requestDownload(item.type === "video" ? "download-video" : "download-hd", item.url,
+          {bulk: true, folder, index: index + 1});
+        activeId = response.downloadId;
+        if (signal.aborted) { cancelActive(); throw new DOMException("Stopped", "AbortError"); }
+        const started = Date.now();
+        while (true) {
+          await GMapsBulk.sleep(750, signal);
+          const state = await chrome.runtime.sendMessage({action: "download-status", id: activeId});
+          if (!state?.success) throw new Error(state?.error || "Cannot check download");
+          if (state.state === "complete") { saved++; break; }
+          if (state.state === "interrupted") throw new Error(state.error || "Download interrupted");
+          if (Date.now() - started > 180000) { cancelActive(); throw new Error("Download timed out"); }
+        }
+      } catch (error) {
+        if (signal.aborted) throw error;
+        failed++;
+        failures.push(`${index + 1}: ${error.message}`);
+      } finally { activeId = null; }
+      await GMapsBulk.sleep(250, signal);
+    }
+    status.textContent = `${reason}. ${saved}/${scanned} saved · ${failed} failed · ${skipped} videos skipped. Files: Downloads/gmaps-hd/`;
+  } catch (error) {
+    status.textContent = signal.aborted
+      ? `Stopped. ${saved} saved · ${failed} failed · ${scanned} found · ${skipped} videos skipped. Files already saved are kept.`
+      : `${error.message} ${saved} saved · ${failed} failed.`;
+  } finally {
+    status.title = failures.join("\n");
+    signal.removeEventListener("abort", cancelActive);
+    single.disabled = bulk.disabled = option.disabled = false;
+    stop.hidden = true;
+    if (bulkJob === job) bulkJob = null;
+  }
+}
+window.addEventListener("pagehide", () => bulkJob?.controller.abort());
+
 // =============================================================
 // UI management and SPA navigation monitoring
 // =============================================================
 
 function updateUI() {
-  const isGmaps = window.location.hostname.includes("google.com") &&
-                  window.location.pathname.includes("/maps");
+  const isGmaps = GMapsMedia.isMaps(window.location.href);
 
   if (isGmaps) {
     if (!downloadBar) downloadBar = createDownloadBar();
     downloadBar.style.display = "flex";
     updateDownloadBar();
+    if (bulkJob && bulkJob.place !== bulkPlaceKey()) bulkJob.controller.abort();
   } else if (downloadBar) {
+    bulkJob?.controller.abort();
     downloadBar.style.display = "none";
   }
 }

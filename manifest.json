@@ -1,9 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Google Maps HD Downloader",
-  "version": "1.0",
+  "version": "1.1.0",
   "description": "Download Google Maps photos and videos at their highest quality",
-  "permissions": ["downloads"],
+  "permissions": [
+    "downloads"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -17,9 +19,43 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["content.css"]
+      "matches": [
+        "https://google.com/maps*",
+        "https://www.google.com/maps*",
+        "https://maps.google.com/maps*",
+        "https://google.com.au/maps*",
+        "https://www.google.com.au/maps*",
+        "https://maps.google.com.au/maps*",
+        "https://google.co.uk/maps*",
+        "https://www.google.co.uk/maps*",
+        "https://maps.google.co.uk/maps*",
+        "https://google.ca/maps*",
+        "https://www.google.ca/maps*",
+        "https://maps.google.ca/maps*",
+        "https://google.co.nz/maps*",
+        "https://www.google.co.nz/maps*",
+        "https://maps.google.co.nz/maps*",
+        "https://google.de/maps*",
+        "https://www.google.de/maps*",
+        "https://maps.google.de/maps*",
+        "https://google.fr/maps*",
+        "https://www.google.fr/maps*",
+        "https://maps.google.fr/maps*",
+        "https://google.co.jp/maps*",
+        "https://www.google.co.jp/maps*",
+        "https://maps.google.co.jp/maps*",
+        "https://google.co.in/maps*",
+        "https://www.google.co.in/maps*",
+        "https://maps.google.co.in/maps*"
+      ],
+      "js": [
+        "media-utils.js",
+        "bulk.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ]
     }
   ],
   "icons": {

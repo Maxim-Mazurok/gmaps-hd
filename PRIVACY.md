@@ -1,20 +1,9 @@
-# Privacy Policy
+# Privacy (local hardened build 1.1.0)
 
-## Data Collection
+No analytics, tracking, remote code, cookies access, or third-party dependencies.
 
-gmaps-hd does **not** collect, store, or transmit any user data. The extension operates entirely locally in your browser.
+The downloads permission saves media to your computer. Content scripts run only on HTTPS Google Maps URLs on the Google domains listed in manifest.json (including google.com and google.com.au). They inspect media URLs in the page and add download controls. Downloads are limited to approved Google image/video hosts, and requests from unsupported pages are rejected.
 
-## Permissions
+Downloading media sends an ordinary network request to Google; Google may receive normal connection metadata and browser cookies according to browser policy. This extension does not send data to its own server. Browser download history and downloaded files persist under your browser and operating system settings.
 
-The extension requests the following Chrome permissions:
-
-- **activeTab** — Used to run the content script on the current tab to detect Google Maps images and videos
-- **downloads** — Used to save downloaded images and videos to your computer
-
-## Network Requests
-
-The extension only makes requests to Google's image/video CDN (`lh3-6.googleusercontent.com`) to download media files. No data is sent to any third-party server.
-
-## Local Operation
-
-All URL parsing, media detection, and UI rendering happen locally in your browser. No analytics, tracking, or telemetry of any kind is included.
+Bulk collection keeps discovered media URLs in the current tab's memory until it finishes or is stopped. No gallery data is uploaded to a separate service. Download files are grouped in a place-and-time subfolder under Downloads/gmaps-hd/. The extension can inspect completion and cancel only downloads attributed to itself. No new permissions are required for bulk downloads.

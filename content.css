@@ -76,3 +76,15 @@
   background: #1557b0;
   opacity: 1;
 }
+
+#gmaps-hd-bar { flex-wrap: wrap; max-width: min(760px, calc(100vw - 48px)); }
+#gmaps-hd-bulk-btn, #gmaps-hd-stop-btn {
+  border: 1px solid #8ab4f8; border-radius: 6px; padding: 8px 12px;
+  color: #e8f0fe; background: #174ea6; cursor: pointer; font: inherit;
+}
+#gmaps-hd-stop-btn { background: #6c2929; border-color: #f28b82; }
+#gmaps-hd-stop-btn[hidden] { display: none; }
+#gmaps-hd-video-option { color: #e8eaed; font-size: 12px; display: flex; gap: 5px; align-items: center; }
+#gmaps-hd-bar button:disabled { opacity: .55; cursor: default; }
+#gmaps-hd-bar-status { flex-basis: 100%; line-height: 1.5; overflow-wrap: anywhere; max-height: 90px; overflow-y: auto; }
+#gmaps-hd-bar-status:empty { display: none; }
