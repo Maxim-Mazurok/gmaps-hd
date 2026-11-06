@@ -71,3 +71,29 @@ Run the dependency-free regression checks with `node tests/security.cjs` and `no
 Content scripts run only on the HTTPS Google Maps hosts listed in the manifest. Download requests require a supported Maps page and an exact approved Google media hostname. The extension rejects other schemes, credentials in URLs, nonstandard ports, and lookalike domains. Download errors are reported, and bulk filenames are sanitized. The only API permission is `downloads`; no analytics, remote code, or third-party dependencies are included.
 
 This fork is based on [inesane/gmaps-hd](https://github.com/inesane/gmaps-hd).
+
+## Fork changelog
+
+These versions describe changes in this fork; they are not upstream releases.
+
+### 1.1.0 — 2026-11-06
+
+- Added **Download all photos** for a place's gallery, with videos skipped by default and an optional **Include videos** setting.
+- Added incremental scrolling and repeated waits for lazy loading, capturing media before virtualized tiles disappear.
+- Removed duplicate media across thumbnail sizes and Google CDN shards, and added selection of the **All** category where available.
+- Added sequential downloads into a place-and-time folder, completed-file and failure counts, and a **Stop** button that cancels the active download and prevents further queued downloads.
+- Added clear reporting for limited galleries and cases where no more media loads; the advertised photo count is not guaranteed.
+- Added 12 bulk-download regression checks, bringing the total to 27. Verified photo downloads, optional MP4 downloads, and cancellation in headless Chrome integration tests.
+
+### 1.0.1 — 2026-11-06
+
+- Restricted content scripts from all websites to supported HTTPS Google Maps pages.
+- Validated download senders and exact Google media hosts; rejected unsupported schemes, embedded credentials, nonstandard ports, and lookalike domains.
+- Waited for the browser's download callback and surfaced initiation errors instead of immediately reporting success.
+- Handled malformed page URL encoding, ignored offscreen image candidates, and bounded hover scans.
+- Fixed video quality URL replacement and applied the selected quality to supported direct video sources.
+- Updated the privacy notice and added 15 security and regression checks.
+
+### Upstream baseline
+
+Forked from [inesane/gmaps-hd at `454e598`](https://github.com/inesane/gmaps-hd/commit/454e598), which provided single-photo and single-video downloads. The security and bulk-download changes above were added by this fork.
